@@ -70,7 +70,7 @@ int main( int argc, char **argv )
 	  
 	    // Apply forces on particles on the border
 	    particle_t **neighbors[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-	    unsigned int n[8];
+	    unsigned int n[8] = {0, 0, 0, 0, 0, 0, 0};
 	    // Upper left
 	    if (x > 0 && y > 0) {
 		neighbors[0] = get_neighboring_particles(first[x - 1 + (y - 1) * NUM_BLOCKS], DOWN | RIGHT, n[0]);
@@ -102,6 +102,50 @@ int main( int argc, char **argv )
 	    // Lower right
 	    if (x < NUM_BLOCKS - 1 && y < NUM_BLOCKS - 1) {
 		neighbors[7] = get_neighboring_particles(first[x + 1 + (y + 1) * NUM_BLOCKS], UP | LEFT, n[7]);
+	    }
+
+	    // Calculate forces from neighboring grid cells
+	    for (particle_t *cur = first[i]; cur != 0; cur = cur->next) {
+		if (cur->boundary | LEFT != 0) {
+		    for (unsigned int i = 0; i < n[3]; ++i) {
+			apply_force(*cur, *neighbors[3][i], &dmin, &davg, &navg);
+		    }
+		}
+		if (cur->boundary | RIGHT != 0) {
+		    for (unsigned int i = 0; i < n[4]; ++i) {
+			apply_force(*cur, *neighbors[4][i], &dmin, &davg, &navg);
+		    }
+		}
+		if (cur->boundary | UP != 0) {
+		    for (unsigned int i = 0; i < n[1]; ++i) {
+			apply_force(*cur, *neighbors[1][i], &dmin, &davg, &navg);
+		    }
+		}
+		if (cur->boundary | DOWN != 0) {
+		    for (unsigned int i = 0; i < n[6]; ++i) {
+			apply_force(*cur, *neighbors[6][i], &dmin, &davg, &navg);
+		    }
+		}
+		if (cur->boundary | (UP & LEFT) != 0) {
+		    for (unsigned int i = 0; i < n[0]; ++i) {
+			apply_force(*cur, *neighbors[0][i], &dmin, &davg, &navg);
+		    }
+		}
+		if (cur->boundary | (UP & RIGHT) != 0) {
+		    for (unsigned int i = 0; i < n[2]; ++i) {
+			apply_force(*cur, *neighbors[2][i], &dmin, &davg, &navg);
+		    }
+		}
+		if (cur->boundary | (DOWN & LEFT) != 0) {
+		    for (unsigned int i = 0; i < n[5]; ++i) {
+			apply_force(*cur, *neighbors[5][i], &dmin, &davg, &navg);
+		    }
+		}
+		if (cur->boundary | (DOWN & RIGHT) != 0) {
+		    for (unsigned int i = 0; i < n[7]; ++i) {
+			apply_force(*cur, *neighbors[7][i], &dmin, &davg, &navg);
+		    }
+		}
 	    }
 
 	    // Clean up the neighbors
