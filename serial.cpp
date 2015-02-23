@@ -3,15 +3,96 @@
 #include <assert.h>
 #include <math.h>
 #include "common.h"
+#include <vector>
+
+// function to place particles into the correct blocks
+// n = number of particles
+// N = number of blocks in one row or column
+// radius = length and width of block
+void bin_particles(int n, int N, double radius, particle_t *particles, std::vector<std::vector<int>> &blocks)
+{
+    for (std::vector<std::vector<int>>::iterator it = blocks.begin(); it != blocks.end(); it++)
+    {
+	(*it).clear();
+    }
+    int rowind, colind;
+    particle_t particle;
+    for (int i = 0; i < n; ++i) {
+        particle = particles[i];
+        rowind = (int) (particle.x/radius);
+        colind = (int) (particle.y/radius);
+	blocks[colind+rowind*N].push_back(i);
+    }
+}
+
+// debugging helper function
+// verifies that the right number of particles are present
+void verify_bins(std::vector<std::vector<int>> &blocks, int n)
+{
+    int total = 0;
+    for (std::vector<std::vector<int>>::iterator it = blocks.begin(); it != blocks.end(); it++)
+    {
+	total += (*it).size();
+    }
+    if (total != n)
+	printf("You have the wrong number of particles. Have: %d; Want: %d.", total, n);
+}
+
+// debugging helper function
+void print_bins(std::vector<std::vector<int>> &blocks,int N)
+{
+    int particle;
+    int total = 0;
+    int counter = 0;
+    std::vector<int> blockrow;
+    for (std::vector<std::vector<int>>::iterator it = blocks.begin(); it != blocks.end(); ++it) {
+	int counter2 = 0;        
+	blockrow = *it;
+	for (std::vector<int>::iterator it2 = blockrow.begin(); it2 != blockrow.end(); ++it2) {
+	    particle = (int) *it2;	    
+	    printf("block %d: %d\n",counter,particle);
+	    counter2++;
+	}
+	printf("block %d has %d particles\n",counter,counter2);
+	total+=counter2;
+	counter++;
+    } 
+    printf("there is a total of %d blocks\n",counter);
+    printf("there is a total of %d particles\n",total);
+} 
+
+// function to let particles in self and neighbor interact
+void interact_particles(particle_t *particles, std::vector<int> &self, std::vector<int> &neighbor, double &dmin, double &davg, int &navg)
+{
+    int pi, pj;
+    
+    for (std::vector<int>::iterator it1 = self.begin(); it1 != self.end(); it1++)
+    {
+	pi =  *it1;
+	for (std::vector<int>::iterator it2 = neighbor.begin(); it2 !=neighbor.end(); it2++)
+	{
+	    pj =  *it2;
+	    //printf("(%d,%d)",pi,pj);
+	    apply_force(particles[pi],particles[pj],&dmin,&davg,&navg);
+	}
+    }
+}
+
+void check_simulation(particle_t *particles,int n,double &dmin,double &davg,int &navg)
+{
+
+        for( int i = 0; i < n; i++ )
+        {
+            particles[i].ax = particles[i].ay = 0;
+            for (int j = 0; j < n; j++ )
+				apply_force( particles[i], particles[j],&dmin,&davg,&navg);
+        }
+
+}
 
 //
 //  benchmarking program
 //
-
-extern double size;
-
-#define NUM_BLOCKS 10
-
 int main( int argc, char **argv )
 {    
     int navg,nabsavg=0;
@@ -37,7 +118,6 @@ int main( int argc, char **argv )
     FILE *fsum = sumname ? fopen ( sumname, "a" ) : NULL;
 
     particle_t *particles = (particle_t*) malloc( n * sizeof(particle_t) );
-    particle_t **first = (particle_t**) malloc( NUM_BLOCKS * NUM_BLOCKS * sizeof(particle_t*) );
     set_size( n );
     init_particles( n, particles );
     
@@ -45,77 +125,114 @@ int main( int argc, char **argv )
     //  simulate a number of time steps
     //
     double simulation_time = read_timer( );
-	
+    const double size = get_size();
+    const int N = (int) (size/cutoff); // grid is split into N x N blocks
+   const double radius = size/(double)N;
+//	printf("radius %f, cutoff %f\n",radius,cutoff);
+
+//const int N = 1;
+//const double radius = size;
+    // initialize N*N blocks    
+    std::vector<std::vector<int>> blocks(N*N);
+    bin_particles(n,N,radius,particles,blocks);
+    verify_bins(blocks, n);
+
+    // debugging, check that particles are put into bins correctly
+//     print_bins(blocks,N);
+
+    std::vector<int> self, no, so, e, w, ne, nw, se, sw;
+    int i,j;
+
+    //printf("%d\n",N);
+
     for( int step = 0; step < NSTEPS; step++ )
     {
 	navg = 0;
         davg = 0.0;
 	dmin = 1.0;
-	organize_particles(n, particles, first, NUM_BLOCKS);
         //
-        //  compute forces
+        //  compute forces by looping through blocks
         //
-        for( int i = 0; i < NUM_BLOCKS * NUM_BLOCKS; i++ )
-        {
-	    unsigned int x = i / NUM_BLOCKS;
-	    unsigned int y = i % NUM_BLOCKS;
-	    for (particle_t *cur = first[i]; cur != 0; cur = cur->next) {
-		cur->ax = cur->ay = 0;
 
-		// Apply forces on particles in the grid
-		for (particle_t *neighbor = first[i]; neighbor != 0; neighbor = neighbor->next) {
-		    apply_force(*cur, *neighbor, &dmin, &davg, &navg);
-		}
-	    }
-	  
-	    // Apply forces on particles on the border
-	    particle_t **neighbors[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-	    unsigned int n[8];
-	    // Upper left
-	    if (x > 0 && y > 0) {
-		neighbors[0] = get_neighboring_particles(first[x - 1 + (y - 1) * NUM_BLOCKS], DOWN | RIGHT, n[0]);
-	    }
-	    // Up
-	    if (y > 0) {
-		neighbors[1] = get_neighboring_particles(first[x + (y - 1) * NUM_BLOCKS], DOWN, n[1]);
-	    }
-	    // Upper right
-	    if (x < NUM_BLOCKS - 1 && y > 0) {
-		neighbors[2] = get_neighboring_particles(first[x + 1 + (y - 1) * NUM_BLOCKS], DOWN | LEFT, n[2]);
-	    }
-	    // LEFT
-	    if (x < 0) {
-		neighbors[3] = get_neighboring_particles(first[x - 1 + y * NUM_BLOCKS], RIGHT, n[3]);
-	    }
-	    // RIGHT
-	    if (x < NUM_BLOCKS - 1) {
-		neighbors[4] = get_neighboring_particles(first[x + 1 + y * NUM_BLOCKS], LEFT, n[4]);
-	    }
-	    // Lower left
-	    if (x > 0 && y < NUM_BLOCKS - 1) {
-		neighbors[5] = get_neighboring_particles(first[x - 1 + (y + 1) * NUM_BLOCKS], UP | RIGHT, n[5]);
-	    }
-	    // Down
-	    if (y < NUM_BLOCKS - 1) {
-		neighbors[6] = get_neighboring_particles(first[x + (y + 1) * NUM_BLOCKS], UP, n[6]);
-	    }
-	    // Lower right
-	    if (x < NUM_BLOCKS - 1 && y < NUM_BLOCKS - 1) {
-		neighbors[7] = get_neighboring_particles(first[x + 1 + (y + 1) * NUM_BLOCKS], UP | LEFT, n[7]);
-	    }
+	// first, you need to reset the forces on all the particles
+	for (int i = 0; i < n; i++ )
+	{
+	    particles[i].ax = particles[i].ay = 0;
+	}
 
-	    // Clean up the neighbors
-	    for (unsigned int i = 0; i < 8; ++i) {
-		free(neighbors[i]);
+	for (std::vector<std::vector<int>>::size_type it = 0; it != (N*N); it++)
+	{
+	    self = blocks[it];
+	    if (self.size() > 0)
+	    {
+	        i = (int) (it/N);
+	        j = it - i*N;
+	  	//printf("iteration %d: (%d, %d)\n",(int)it,i,j);
+		
+		// interact with self
+		interact_particles(particles,self,self,dmin,davg,navg);
+	    
+		// interact with northern neighbors
+	    	if (i < N-1) 
+	    	{
+		    no = blocks[j+(i+1)*N];
+		    if (no.size() > 0) interact_particles(particles,self,no,dmin,davg,navg);
+		    
+		    // interact with eastern neighbors
+		    if (j < N-1)
+		    {
+		    	ne = blocks[j+1+(i+1)*N];
+		    	if (ne.size() > 0) interact_particles(particles,self,ne,dmin,davg,navg);
+		    	e = blocks[j+1+i*N];
+		    	if (e.size() > 0) interact_particles(particles,self,e,dmin,davg,navg);
+		    }
+		    // interact with western neighbors
+		    if (j > 1)
+		    {
+		    	nw = blocks[j-1+(i+1)*N];
+		    	if (nw.size() > 0) interact_particles(particles,self,nw,dmin,davg,navg);
+		    	w = blocks[j-1+i*N];
+		    	if (w.size() > 0) interact_particles(particles,self,w,dmin,davg,navg);
+		    }
+	    	}
+	    	// interact with southern neighbors
+	    	if (i > 1)
+	    	{
+		    so = blocks[j+(i-1)*N];
+		    if (so.size() > 0) interact_particles(particles,self,so,dmin,davg,navg);
+		
+		    // interact with eastern neighbors
+	 	    if (j < N-1)
+		    {
+		    	se = blocks[j+1+(i-1)*N];
+		    	if (se.size() > 0) interact_particles(particles,self,se,dmin,davg,navg);
+		    }
+		    // interact with western neighbors
+		    if (j > 1)
+		    {
+		    	sw = blocks[j-1+(i-1)*N];
+		    	if (sw.size() > 0) interact_particles(particles,self,sw,dmin,davg,navg);
+		    }
+	    	}
 	    }
-	  
-        }
+	}
+
+//        for( int i = 0; i < n; i++ )
+//        {
+//            particles[i].ax = particles[i].ay = 0;
+//            for (int j = 0; j < n; j++ )
+//				apply_force( particles[i], particles[j],&dmin,&davg,&navg);
+//        }
  
         //
         //  move particles
         //
         for( int i = 0; i < n; i++ ) 
             move( particles[i] );		
+
+	// rebin after every step
+	bin_particles(n,N,radius,particles,blocks);
+	verify_bins(blocks,n);
 
         if( find_option( argc, argv, "-no" ) == -1 )
         {
@@ -135,6 +252,14 @@ int main( int argc, char **argv )
               save( fsave, n, particles );
         }
     }
+
+
+// navg,nabsavg=0;
+// davg,dmin, absmin=1.0, absavg=0.0;
+
+printf("\n");
+//    check_simulation(particles,n,dmin,davg,navg);
+
     simulation_time = read_timer( ) - simulation_time;
     
     printf( "n = %d, simulation time = %g seconds", n, simulation_time);

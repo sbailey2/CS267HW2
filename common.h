@@ -1,5 +1,12 @@
 #ifndef __CS267_COMMON_H__
 #define __CS267_COMMON_H__
+#define density 0.0005
+#define mass    0.01
+#define cutoff  0.01
+#define min_r   (cutoff/100)
+#define dt      0.0005
+
+
 
 inline int min( int a, int b ) { return a < b ? a : b; }
 inline int max( int a, int b ) { return a > b ? a : b; }
@@ -10,15 +17,14 @@ inline int max( int a, int b ) { return a > b ? a : b; }
 const int NSTEPS = 1000;
 const int SAVEFREQ = 10;
 
-#define LEFT 1
-#define RIGHT 2
-#define UP 4
-#define DOWN 8
+// common variables
+extern double size;
+extern double radius;
 
 //
 // particle data structure
 //
-struct particle_t
+typedef struct 
 {
   double x;
   double y;
@@ -26,10 +32,7 @@ struct particle_t
   double vy;
   double ax;
   double ay;
-  unsigned int grid;
-  unsigned int boundary;
-  struct particle_t *next;
-};
+} particle_t;
 
 //
 //  timing routines
@@ -40,9 +43,8 @@ double read_timer( );
 //  simulation routines
 //
 void set_size( int n );
+double get_size();
 void init_particles( int n, particle_t *p );
-void organize_particles( int n, particle_t *p, particle_t **first, unsigned int num_blocks );
-particle_t** get_neighboring_particles( particle_t *first, unsigned int flag, unsigned int &n );
 void apply_force( particle_t &particle, particle_t &neighbor , double *dmin, double *davg, int *navg);
 void move( particle_t &p );
 
