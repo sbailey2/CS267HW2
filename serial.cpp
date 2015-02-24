@@ -126,22 +126,22 @@ int main( int argc, char **argv )
 			apply_force(*cur, *neighbors[6][j], &dmin, &davg, &navg);
 		    }
 		}
-		if (cur->boundary & (UP & LEFT) != 0) {
+		if (cur->boundary & UP != 0 && cur->boundary & LEFT != 0) {
 		    for (unsigned int j = 0; j < n[0]; ++j) {
 			apply_force(*cur, *neighbors[0][j], &dmin, &davg, &navg);
 		    }
 		}
-		if (cur->boundary & (UP & RIGHT) != 0) {
+		if (cur->boundary & UP != 0 && cur->boundary & RIGHT != 0) {
 		    for (unsigned int j = 0; j < n[2]; ++j) {
 			apply_force(*cur, *neighbors[2][j], &dmin, &davg, &navg);
 		    }
 		}
-		if (cur->boundary & (DOWN & LEFT) != 0) {
+		if (cur->boundary & DOWN != 0 && cur->boundary & LEFT != 0) {
 		    for (unsigned int j = 0; j < n[5]; ++j) {
 			apply_force(*cur, *neighbors[5][j], &dmin, &davg, &navg);
 		    }
 		}
-		if (cur->boundary & (DOWN & RIGHT) != 0) {
+		if (cur->boundary & DOWN != 0, cur->boundary & RIGHT != 0) {
 		    for (unsigned int j = 0; j < n[7]; ++j) {
 			apply_force(*cur, *neighbors[7][j], &dmin, &davg, &navg);
 		    }
@@ -210,6 +210,7 @@ int main( int argc, char **argv )
     //
     if( fsum )
         fclose( fsum );    
+    free( first );
     free( particles );
     if( fsave )
         fclose( fsave );
