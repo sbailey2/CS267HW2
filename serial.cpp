@@ -84,7 +84,7 @@ int main( int argc, char **argv )
 		neighbors[2] = get_neighboring_particles(first[x + 1 + (y - 1) * NUM_BLOCKS], DOWN | LEFT, n[2]);
 	    }
 	    // LEFT
-	    if (x < 0) {
+	    if (x > 0) {
 		neighbors[3] = get_neighboring_particles(first[x - 1 + y * NUM_BLOCKS], RIGHT, n[3]);
 	    }
 	    // RIGHT
@@ -106,42 +106,42 @@ int main( int argc, char **argv )
 
 	    // Calculate forces from neighboring grid cells
 	    for (particle_t *cur = first[i]; cur != 0; cur = cur->next) {
-		if (cur->boundary & LEFT != 0) {
+	      if ((cur->boundary & LEFT) != 0) {
 		    for (unsigned int j = 0; j < n[3]; ++j) {
 			apply_force(*cur, *neighbors[3][j], &dmin, &davg, &navg);
 		    }
 		}
-		if (cur->boundary & RIGHT != 0) {
+	      if ((cur->boundary & RIGHT) != 0) {
 		    for (unsigned int j = 0; j < n[4]; ++j) {
 			apply_force(*cur, *neighbors[4][j], &dmin, &davg, &navg);
 		    }
 		}
-		if (cur->boundary & UP != 0) {
+	      if ((cur->boundary & UP) != 0) {
 		    for (unsigned int j = 0; j < n[1]; ++j) {
 			apply_force(*cur, *neighbors[1][j], &dmin, &davg, &navg);
 		    }
 		}
-		if (cur->boundary & DOWN != 0) {
+	      if ((cur->boundary & DOWN) != 0) {
 		    for (unsigned int j = 0; j < n[6]; ++j) {
 			apply_force(*cur, *neighbors[6][j], &dmin, &davg, &navg);
 		    }
 		}
-		if (cur->boundary & UP != 0 && cur->boundary & LEFT != 0) {
+	      if ((cur->boundary & UP) != 0 && (cur->boundary & LEFT) != 0) {
 		    for (unsigned int j = 0; j < n[0]; ++j) {
 			apply_force(*cur, *neighbors[0][j], &dmin, &davg, &navg);
 		    }
 		}
-		if (cur->boundary & UP != 0 && cur->boundary & RIGHT != 0) {
+	      if ((cur->boundary & UP) != 0 && (cur->boundary & RIGHT) != 0) {
 		    for (unsigned int j = 0; j < n[2]; ++j) {
 			apply_force(*cur, *neighbors[2][j], &dmin, &davg, &navg);
 		    }
 		}
-		if (cur->boundary & DOWN != 0 && cur->boundary & LEFT != 0) {
+	      if ((cur->boundary & DOWN) != 0 && (cur->boundary & LEFT) != 0) {
 		    for (unsigned int j = 0; j < n[5]; ++j) {
 			apply_force(*cur, *neighbors[5][j], &dmin, &davg, &navg);
 		    }
 		}
-		if (cur->boundary & DOWN != 0, cur->boundary & RIGHT != 0) {
+	      if ((cur->boundary & DOWN) != 0 && (cur->boundary & RIGHT) != 0) {
 		    for (unsigned int j = 0; j < n[7]; ++j) {
 			apply_force(*cur, *neighbors[7][j], &dmin, &davg, &navg);
 		    }
