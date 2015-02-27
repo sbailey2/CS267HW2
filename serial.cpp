@@ -10,7 +10,7 @@
 
 extern double size;
 
-#define NUM_BLOCKS 20
+#define NUM_BLOCKS 10
 
 int main( int argc, char **argv )
 {    
@@ -57,104 +57,23 @@ int main( int argc, char **argv )
         //
         for( int i = 0; i < NUM_BLOCKS * NUM_BLOCKS; i++ )
         {
-	    unsigned int x = i / NUM_BLOCKS;
-	    unsigned int y = i % NUM_BLOCKS;
+	    unsigned int x = i % NUM_BLOCKS;
+	    unsigned int y = i / NUM_BLOCKS;
 	    for (particle_t *cur = first[i]; cur != 0; cur = cur->next) {
 		cur->ax = cur->ay = 0;
 
-		// Apply forces on particles in the grid
-		for (particle_t *neighbor = first[i]; neighbor != 0; neighbor = neighbor->next) {
-		    apply_force(*cur, *neighbor, &dmin, &davg, &navg);
-		}
-	    }
-	  
-	    // Apply forces on particles on the border
-	    particle_t **neighbors[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-	    unsigned int n[8] = {0, 0, 0, 0, 0, 0, 0};
-	    // Upper left
-	    if (x > 0 && y > 0) {
-		neighbors[0] = get_neighboring_particles(first[x - 1 + (y - 1) * NUM_BLOCKS], DOWN | RIGHT, n[0]);
-	    }
-	    // Up
-	    if (y > 0) {
-		neighbors[1] = get_neighboring_particles(first[x + (y - 1) * NUM_BLOCKS], DOWN, n[1]);
-	    }
-	    // Upper right
-	    if (x < NUM_BLOCKS - 1 && y > 0) {
-		neighbors[2] = get_neighboring_particles(first[x + 1 + (y - 1) * NUM_BLOCKS], DOWN | LEFT, n[2]);
-	    }
-	    // LEFT
-	    if (x > 0) {
-		neighbors[3] = get_neighboring_particles(first[x - 1 + y * NUM_BLOCKS], RIGHT, n[3]);
-	    }
-	    // RIGHT
-	    if (x < NUM_BLOCKS - 1) {
-		neighbors[4] = get_neighboring_particles(first[x + 1 + y * NUM_BLOCKS], LEFT, n[4]);
-	    }
-	    // Lower left
-	    if (x > 0 && y < NUM_BLOCKS - 1) {
-		neighbors[5] = get_neighboring_particles(first[x - 1 + (y + 1) * NUM_BLOCKS], UP | RIGHT, n[5]);
-	    }
-	    // Down
-	    if (y < NUM_BLOCKS - 1) {
-		neighbors[6] = get_neighboring_particles(first[x + (y + 1) * NUM_BLOCKS], UP, n[6]);
-	    }
-	    // Lower right
-	    if (x < NUM_BLOCKS - 1 && y < NUM_BLOCKS - 1) {
-		neighbors[7] = get_neighboring_particles(first[x + 1 + (y + 1) * NUM_BLOCKS], UP | LEFT, n[7]);
-	    }
+		for (unsigned int gy = max(int(y)-1,0); gy < min(y+2, NUM_BLOCKS); ++gy) {
+		    for (unsigned int gx = max(int(x)-1,0); gx < min(x+2, NUM_BLOCKS); ++gx) {
 
-	    // Calculate forces from neighboring grid cells
-	    for (particle_t *cur = first[i]; cur != 0; cur = cur->next) {
-	      if ((cur->boundary & LEFT) != 0) {
-		    for (unsigned int j = 0; j < n[3]; ++j) {
-			apply_force(*cur, *neighbors[3][j], &dmin, &davg, &navg);
-		    }
-		}
-	      if ((cur->boundary & RIGHT) != 0) {
-		    for (unsigned int j = 0; j < n[4]; ++j) {
-			apply_force(*cur, *neighbors[4][j], &dmin, &davg, &navg);
-		    }
-		}
-	      if ((cur->boundary & UP) != 0) {
-		    for (unsigned int j = 0; j < n[1]; ++j) {
-			apply_force(*cur, *neighbors[1][j], &dmin, &davg, &navg);
-		    }
-		}
-	      if ((cur->boundary & DOWN) != 0) {
-		    for (unsigned int j = 0; j < n[6]; ++j) {
-			apply_force(*cur, *neighbors[6][j], &dmin, &davg, &navg);
-		    }
-		}
-	      if ((cur->boundary & UP) != 0 && (cur->boundary & LEFT) != 0) {
-		    for (unsigned int j = 0; j < n[0]; ++j) {
-			apply_force(*cur, *neighbors[0][j], &dmin, &davg, &navg);
-		    }
-		}
-	      if ((cur->boundary & UP) != 0 && (cur->boundary & RIGHT) != 0) {
-		    for (unsigned int j = 0; j < n[2]; ++j) {
-			apply_force(*cur, *neighbors[2][j], &dmin, &davg, &navg);
-		    }
-		}
-	      if ((cur->boundary & DOWN) != 0 && (cur->boundary & LEFT) != 0) {
-		    for (unsigned int j = 0; j < n[5]; ++j) {
-			apply_force(*cur, *neighbors[5][j], &dmin, &davg, &navg);
-		    }
-		}
-	      if ((cur->boundary & DOWN) != 0 && (cur->boundary & RIGHT) != 0) {
-		    for (unsigned int j = 0; j < n[7]; ++j) {
-			apply_force(*cur, *neighbors[7][j], &dmin, &davg, &navg);
+			// Apply forces on particles in the grid
+			for (particle_t *neighbor = first[gx + gy * NUM_BLOCKS]; neighbor != 0; neighbor = neighbor->next) {
+			    apply_force(*cur, *neighbor, &dmin, &davg, &navg);
+			}
 		    }
 		}
 	    }
-
-	    // Clean up the neighbors
-	    for (unsigned int i = 0; i < 8; ++i) {
-		free(neighbors[i]);
-	    }
+	}
 	  
-        }
- 
         //
         //  move particles
         //

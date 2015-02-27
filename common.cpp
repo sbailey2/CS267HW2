@@ -89,83 +89,38 @@ void init_particles( int n, particle_t *p )
 void organize_particles( int n, particle_t *p, particle_t **first, unsigned int num_blocks )
 {
 
-  double width = size / num_blocks;
-  particle_t **prev = (particle_t**)malloc(num_blocks * num_blocks * sizeof(particle_t*));
-  for (unsigned int i = 0; i < num_blocks * num_blocks; ++i) {
-    prev[i] = 0;
-    first[i] = 0;
-  }
+    double width = size / num_blocks;
+    particle_t **prev = (particle_t**)malloc(num_blocks * num_blocks * sizeof(particle_t*));
+    for (unsigned int i = 0; i < num_blocks * num_blocks; ++i) {
+	prev[i] = 0;
+	first[i] = 0;
+    }
   
-  for (unsigned int i = 0; i < n; ++i) {
-    unsigned int grid_x = (unsigned int)floor(p[i].x / width);
-    unsigned int grid_y = (unsigned int)floor(p[i].y / width);
-    double gx = p[i].x - grid_x * width;
-    double gy = p[i].y - grid_y * width;
-    unsigned int grid =  grid_x + grid_y * num_blocks;
-    p[i].boundary = 0;
+    for (unsigned int i = 0; i < n; ++i) {
+	unsigned int grid_x = (unsigned int)floor(p[i].x / width);
+	unsigned int grid_y = (unsigned int)floor(p[i].y / width);
+	double gx = p[i].x - grid_x * width;
+	double gy = p[i].y - grid_y * width;
+	unsigned int grid =  grid_x + grid_y * num_blocks;
 
-    // Place the particle in a grid cell
-    if (prev[grid] == 0) {
-      first[grid] = p + i;
-      prev[grid] = p + i;
-    }
-    else {
-      prev[grid]->next = p + i;
-      prev[grid] = p + i;
-    }
+	// Place the particle in a grid cell
+	if (prev[grid] == 0) {
+	    first[grid] = p + i;
+	    prev[grid] = p + i;
+	}
+	else {
+	    prev[grid]->next = p + i;
+	    prev[grid] = p + i;
+	}
 
-    // Determine if the particle is near an edge of the grid cell
-    if (gx < cutoff && grid_x > 0) {
-	p[i].boundary |= LEFT;
-    }
-    if (width - gx < cutoff && grid_x < num_blocks - 1) {
-	p[i].boundary |= RIGHT;
-    }
-    if (gy < cutoff && grid_y > 0) {
-	p[i].boundary |= UP;
-    }
-    if (width - gy < cutoff && grid_y < num_blocks - 1) {
-	p[i].boundary |= DOWN;
-    }
-  }
-
-  for (unsigned int i = 0; i < num_blocks * num_blocks; ++i) {
-    if (prev[i] != 0) {
-      prev[i]->next = 0;
-    }
-  }
-
-  free(prev);
-}
-
-//
-//  generate a list of the particles on the border of the given cell
-//
-particle_t** get_neighboring_particles( particle_t *first, unsigned int flag, unsigned int &n )
-{
-    // Count the particles
-    n = 0;
-    for (particle_t *cur = first; cur != 0; cur = cur->next) {
-	if (cur->boundary == flag) {
-	    ++n;
+	for (unsigned int i = 0; i < num_blocks * num_blocks; ++i) {
+	    if (prev[i] != 0) {
+		prev[i]->next = 0;
+	    }
 	}
     }
 
-    // Add the particles to a list
-    particle_t **out = 0;
-    if (n > 0) {
-	out = (particle_t **) malloc(n * sizeof(particle_t*));
-    }
-    else {
-	return out;
-    }
-    unsigned int count = 0;
-    for (particle_t *cur = first; cur != 0; cur = cur->next) {
-	if (cur->boundary == flag) {
-	    out[count++] = cur;
-	}
-    }
-    return out;
+    free(prev);
 }
 
 //

@@ -10,11 +10,6 @@ inline int max( int a, int b ) { return a > b ? a : b; }
 const int NSTEPS = 1000;
 const int SAVEFREQ = 10;
 
-#define LEFT 1
-#define RIGHT 2
-#define UP 4
-#define DOWN 8
-
 //
 // particle data structure
 //
@@ -26,8 +21,6 @@ struct particle_t
   double vy;
   double ax;
   double ay;
-  unsigned int grid;
-  unsigned int boundary;
   struct particle_t *next;
 };
 
@@ -42,7 +35,6 @@ double read_timer( );
 void set_size( int n );
 void init_particles( int n, particle_t *p );
 void organize_particles( int n, particle_t *p, particle_t **first, unsigned int num_blocks );
-particle_t** get_neighboring_particles( particle_t *first, unsigned int flag, unsigned int &n );
 void apply_force( particle_t &particle, particle_t &neighbor , double *dmin, double *davg, int *navg);
 void move( particle_t &p );
 
