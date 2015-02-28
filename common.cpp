@@ -8,9 +8,6 @@
 #include <sys/time.h>
 #include "common.h"
 
-//
-//  tuned constants
-//
 double size;
 
 //
@@ -30,18 +27,98 @@ double read_timer( )
     return (end.tv_sec - start.tv_sec) + 1.0e-6 * (end.tv_usec - start.tv_usec);
 }
 
-// get size
-double get_size()
-{
-    return size;
-}
-
 //
 //  keep density constant
 //
 void set_size( int n )
 {
     size = sqrt( density * n );
+}
+
+double get_size()
+{
+    return size;
+}
+
+// 
+// Initialize bins
+//
+void initialize_bins(bin_t *bins, int N)
+{
+    int rowind, colind;
+    int N2 = N*N;
+
+    for (int k = 0; k < N2; k++)
+    {
+	rowind = k/N;
+	colind = k - rowind*N;
+	bins[k].i = rowind;
+	bins[k].j = colind;
+	bins[k].particles = NULL;
+	if (rowind > 0) {
+	    bins[k].south = &bins[(rowind-1)*N+colind];
+	    if (colind > 0) {
+		bins[k].west = &bins[rowind*N+(colind-1)];
+		bins[k].sw = &bins[(rowind-1)*N+(colind-1)];
+	    } else {
+		bins[k].west = NULL;
+		bins[k].nw = NULL;
+		bins[k].ne = NULL;
+	    }
+	    if (colind < N-1) {
+		bins[k].east = &bins[rowind*N+(colind+1)];
+		bins[k].se = &bins[(rowind-1)*N+(colind+1)];
+	    } else {
+		bins[k].east = NULL;
+		bins[k].se = NULL;
+		bins[k].ne = NULL;
+	    }
+	} else {
+	    bins[k].south = NULL;
+	    bins[k].se = NULL;
+	    bins[k].sw = NULL;
+	}
+	if (rowind < N-1) {
+	    bins[k].north = &bins[(rowind+1)*N+colind];
+	    if (colind < N-1) {
+		bins[k].east = &bins[(rowind*N+(colind+1))];
+		bins[k].ne = &bins[(rowind+1)*N+(colind+1)];
+	    } else {
+		bins[k].east = NULL;
+		bins[k].se = NULL;
+		bins[k].ne = NULL;
+	    }
+	    if (colind > 0) {
+		bins[k].west = &bins[(rowind*N+(colind-1))];
+		bins[k].nw = &bins[(rowind+1)*N+(colind-1)];
+	    } else {
+		bins[k].west = NULL;
+		bins[k].nw = NULL;
+		bins[k].sw = NULL;
+	    }
+	} else {
+	    bins[k].north = NULL;
+	    bins[k].ne = NULL;
+	    bins[k].nw = NULL;
+	}
+    }
+}
+
+// 
+//  Put particles into bins depending on their position
+//
+void bin_particles(bin_t *bins, particle_t *particles, int N, int n, double bin_size)
+{
+    particle_t *temp;
+    int rowind, colind;
+    for (int i = 0; i < n; i++)
+    {
+	colind = (int)(particles[i].x/bin_size);
+	rowind = (int)(particles[i].y/bin_size);
+	temp = bins[rowind*N+colind].particles;
+	bins[rowind*N+colind].particles = &particles[i];
+	particles[i].next = temp;
+    } 
 }
 
 //
@@ -87,21 +164,17 @@ void init_particles( int n, particle_t *p )
 //
 void apply_force( particle_t &particle, particle_t &neighbor , double *dmin, double *davg, int *navg)
 {
-//	printf("in the apply_force function\n");
+
     double dx = neighbor.x - particle.x;
     double dy = neighbor.y - particle.y;
     double r2 = dx * dx + dy * dy;
-//    printf("(%f,%f),(%f,%f)",particle.x,particle.y,neighbor.x,neighbor.y);
-//   printf("%f,%f\n",r2,cutoff*cutoff);
+ 
     if( r2 > cutoff*cutoff )
         return;
 	if (r2 != 0)
         {
-	   if (r2/(cutoff*cutoff) < *dmin * (*dmin)) {
+	   if (r2/(cutoff*cutoff) < *dmin * (*dmin))
 	      *dmin = sqrt(r2)/cutoff;
-	      //debugging
-//		printf("(%f,%f) with (%f,%f)\n",particle.x,particle.y,neighbor.x,neighbor.y);
-	   }
            (*davg) += sqrt(r2)/cutoff;
            (*navg) ++;
         }
@@ -117,7 +190,65 @@ void apply_force( particle_t &particle, particle_t &neighbor , double *dmin, dou
     double coef = ( 1 - cutoff / r ) / r2 / mass;
     particle.ax += coef * dx;
     particle.ay += coef * dy;
-    //printf("repulsive force: %f\n",coef);
+}
+
+//
+// interact particles from bin self with particles from bin neighbor
+// 
+void apply_force_bin(particle_t *self, particle_t *neighbor, bool clearForces, double *dmin, double *davg, int *navg)
+{
+    if ((self == NULL) || (neighbor == NULL))
+	return;
+
+    particle_t *temp = self;
+    if (clearForces)
+    {
+	while (temp != NULL) {
+	    (*temp).ax = (*temp).ay = 0;
+	    temp = (*temp).next;
+	}
+    }
+
+    particle_t *selfptr = self;
+    particle_t *neighborptr = neighbor;
+    while (selfptr != NULL) {
+	while (neighborptr != NULL) {
+	    apply_force(*selfptr,*neighborptr,dmin,davg,navg);
+	    neighborptr = (*neighborptr).next;
+	    if (selfptr != neighborptr) {
+	    }
+	}
+	selfptr = (*selfptr).next;
+	neighborptr = neighbor;
+    }
+}
+
+//
+//  interact binned particles with neighboring binned particles
+//
+void interact_binned_particles(bin_t *bins, int N, double *dmin, double *davg, int *navg)
+{
+    int N2 = N*N;
+    for (int i = 0; i < N2; i++)
+    {
+	apply_force_bin(bins[i].particles,bins[i].particles,1,dmin,davg,navg);
+	if (bins[i].north != NULL) 
+	    apply_force_bin(bins[i].particles,(*bins[i].north).particles,0,dmin,davg,navg);
+	if (bins[i].south != NULL)
+	    apply_force_bin(bins[i].particles,(*bins[i].south).particles,0,dmin,davg,navg);
+ 	if (bins[i].east != NULL) 
+	    apply_force_bin(bins[i].particles,(*bins[i].east).particles,0,dmin,davg,navg);
+	if (bins[i].west != NULL)
+	    apply_force_bin(bins[i].particles,(*bins[i].west).particles,0,dmin,davg,navg);   
+ 	if (bins[i].ne != NULL) 
+	    apply_force_bin(bins[i].particles,(*bins[i].ne).particles,0,dmin,davg,navg);
+	if (bins[i].nw != NULL)
+	    apply_force_bin(bins[i].particles,(*bins[i].nw).particles,0,dmin,davg,navg);
+ 	if (bins[i].se != NULL) 
+	    apply_force_bin(bins[i].particles,(*bins[i].se).particles,0,dmin,davg,navg);
+	if (bins[i].sw != NULL)
+	    apply_force_bin(bins[i].particles,(*bins[i].sw).particles,0,dmin,davg,navg);   
+    }
 }
 
 //
@@ -147,6 +278,81 @@ void move( particle_t &p )
         p.y  = p.y < 0 ? -p.y : 2*size-p.y;
         p.vy = -p.vy;
     }
+}
+
+// 
+// check if particle is in the correct bin
+//
+bool isCorrectlyBinned(double x,double y,int i,int j,double bin_size)
+{
+    if ((y>(i*bin_size)) && (y<=((i+1)*bin_size)) && (x>(j*bin_size)) && (x<=((j+1)*bin_size))) {
+	return 1;
+    } else {
+	return 0;
+    }
+}
+
+//
+// move each particle, then reassign to the correct bin
+//
+void move_and_rebin(bin_t *bins, int N, double bin_size)
+{
+    particle_t *rebinQueue = NULL;
+    particle_t *stayQueue = NULL;
+    particle_t *temp;
+    particle_t *particle;
+    int N2 = N*N;
+    int i, j;
+
+    // for each bin
+    for (int i = 0; i < N2; i++) {
+	particle = bins[i].particles;
+	while (particle != NULL) {
+	    move(*particle);
+	    temp = particle;
+	    particle = (*particle).next;
+	    if (!isCorrectlyBinned((*temp).x,(*temp).y,bins[i].i,bins[i].j,bin_size)) {
+		(*temp).next = rebinQueue;
+		rebinQueue = temp;
+	    } else {
+		(*temp).next = stayQueue;
+		stayQueue = temp;
+	    }
+	}
+	bins[i].particles = stayQueue;
+	stayQueue = NULL;
+    }
+
+    // rebin particles
+    while (rebinQueue != NULL) {
+	j = (int) ((*rebinQueue).x/bin_size);
+	i = (int) ((*rebinQueue).y/bin_size);
+	temp = rebinQueue;
+	rebinQueue = (*rebinQueue).next;
+	(*temp).next = bins[i*N+j].particles;
+	bins[i*N+j].particles = temp;
+    }
+}
+
+// debugging function
+void check_bins(bin_t *bins, int N)
+{
+    particle_t *particle;
+    particle_t *temp;
+    int N2 = N*N;
+    int counter = 1;
+    for (int i = 0; i < N2; i++) {
+	printf("%d,%d\n",bins[i].i,bins[i].j);
+	particle = bins[i].particles;
+	while (particle != NULL) {
+	    printf("x=%f,y=%f\n",(*particle).x,(*particle).y);
+	    temp = (*particle).next;
+	    particle = temp;
+	    counter++;
+	    
+        }
+    }
+    printf("there are %d particles in the bins\n",counter);
 }
 
 //
