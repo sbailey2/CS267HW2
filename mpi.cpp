@@ -8,13 +8,73 @@
 using std::vector;
 
 extern double size;
-MPI_Datatype PARTICLE;
-
 int M, N;
+int pRowInd, pColInd;
 double pRowWidth, pColWidth;
-double nGBdry, sGBdry, eGBdry, wGBdry;
+double nBdry, sBdry, eBdry, wBdry;
+double ngBdry, sgBdry, egBdry, wgBdry;
+int pNeighbors[8];
+int nn;
 
-void find_dim(double size, int n_proc) {
+int gridm, gridn;
+double gridColWidth, gridRowWidth;
+int offset[9];
+
+void setup_local_grid() {
+    gridm = (int)(pRowWidth/cutoff);
+    gridn = (int)(pColWidth/cutoff);
+    gridColWidth = pColWidth/(double)gridn;
+    gridRowWidth = pRowWidth/(double)gridm;
+    gridm += 2;
+    gridn += 2;
+}
+
+int grid_index(double x, double y) {
+    int cInd = (int)((x-wBdry)/gridColWidth)+1;
+    int rInd = (int)((y-sBdry)/gridRowWidth)+1;
+    return rInd*gridn+cInd;
+}
+
+void compute_offset() {
+
+    offset[0] = (-1)*gridn+(-1);
+    offset[1] = (-1)*gridn;
+    offset[2] = (-1)*gridn+(1);
+    offset[3] = -1;
+    offset[4] = 0;
+    offset[5] = 1;
+    offset[6] = (1)*gridn+(-1);
+    offset[7] = (1)*gridn;
+    offset[8] = (1)*gridn+(1);
+}
+
+void local_apply_force(particle_t &self, vector<particle_t> &neighbor, double *dmin, double *davg, int *navg) {
+    for (int j = 0; j < neighbor.size(); j++) {
+	apply_force(self,neighbor[j],dmin,davg,navg);
+    }
+}
+
+void distribute_particles_to_local_grid(vector<particle_t> local, vector<vector<particle_t> > gz, vector<vector<particle_t> > &grid) {
+
+    // clear grid from last time
+    for (int i = 0; i < gridm*gridn; i++) {
+	grid[i].clear();
+    }
+
+    // bin particles from local and ghostzone into grid
+    for (int i = 0; i < local.size(); i++) {
+	grid[grid_index(local[i].x,local[i].y)].push_back(local[i]);
+    }
+    vector<particle_t> currGZ;
+    for (int i = 0; i < 8; i++) {
+	currGZ = gz[i];
+	for (int j = 0; j < currGZ.size(); j++) {
+	    grid[grid_index(currGZ[j].x,currGZ[j].y)].push_back(currGZ[j]);
+	}
+    }
+}
+
+void find_dim(int n_proc) {
     M = N = 1;
     bool multN = 1;
     while (n_proc != 1) {
@@ -29,124 +89,113 @@ void find_dim(double size, int n_proc) {
     }
 }
 
-void find_neighbor_procs(int i, int j, int *pNeighbors) {
-    pNeighbors[0] = ((i>0)&&(j>0)) ? ((i-1)*N+(j-1)) : (-1);
-    pNeighbors[1] = (i>0) ? ((i-1)*N+j) : (-1);
-    pNeighbors[2] = ((i>0)&&(j<N-1)) ? ((i-1)*N+(j+1)) : (-1);
-    pNeighbors[3] = (j>0) ? (i*N+(j-1)) : (-1);
-    pNeighbors[4] = (j<N-1) ? (i*N+(j+1)) : (-1);
-    pNeighbors[5] = ((i<M-1)&&(j>0)) ? ((i+1)*N+(j-1)) : (-1);
-    pNeighbors[6] = (i<M-1) ? ((i+1)*N+j) : (-1);
-    pNeighbors[7] = ((i<M-1)&&(j<N-1)) ? ((i+1)*N+(j+1)) : (-1);
+void find_neighbor_procs() {
+    pNeighbors[0] = ((pRowInd>0)&&(pColInd>0)) ? ((pRowInd-1)*N+(pColInd-1)) : (-1);
+    pNeighbors[1] = (pRowInd>0) ? ((pRowInd-1)*N+pColInd) : (-1);
+    pNeighbors[2] = ((pRowInd>0)&&(pColInd<N-1)) ? ((pRowInd-1)*N+(pColInd+1)) : (-1);
+    pNeighbors[3] = (pColInd>0) ? (pRowInd*N+(pColInd-1)) : (-1);
+    pNeighbors[4] = (pColInd<N-1) ? (pRowInd*N+(pColInd+1)) : (-1);
+    pNeighbors[5] = ((pRowInd<M-1)&&(pColInd>0)) ? ((pRowInd+1)*N+(pColInd-1)) : (-1);
+    pNeighbors[6] = (pRowInd<M-1) ? ((pRowInd+1)*N+pColInd) : (-1);
+    pNeighbors[7] = ((pRowInd<M-1)&&(pColInd<N-1)) ? ((pRowInd+1)*N+(pColInd+1)) : (-1);
+    nn = 0;
+    for (int i = 0; i < 8; i++) 
+	nn += (pNeighbors[i]!=-1) ? (1) : (0);
 }
 
-void setup_proc_grid(double size, int n_proc, int rank, int *pRowInd, int *pColInd, int *pNeighbors) {
+void setup(int n_proc, int rank) {
 
-    find_dim(size, n_proc);
-    (*pRowInd) = rank/N;
-    (*pColInd) = rank - (*pRowInd)*N;
+    find_dim(n_proc);
+    pRowInd = rank/N;
+    pColInd = rank - pRowInd*N;
     pRowWidth = size/(double)M;
     pColWidth = size/(double)N;
-    find_neighbor_procs(*pRowInd,*pColInd,pNeighbors);
-    nGBdry = ((*pRowInd)+1)*(pRowWidth) - cutoff;
-    sGBdry = (*pRowInd)*(pRowWidth) + cutoff;
-    eGBdry = ((*pColInd)+1)*(pColWidth) - cutoff;
-    wGBdry = (*pColInd)*(pColWidth) + cutoff;
+    find_neighbor_procs();
+    nBdry = (pRowInd+1)*pRowWidth;
+    sBdry = pRowInd*pRowWidth;
+    eBdry = (pColInd+1)*pColWidth;
+    wBdry = pColInd*pColWidth;
+    ngBdry = nBdry - cutoff;
+    sgBdry = sBdry + cutoff;
+    egBdry = eBdry - cutoff;
+    wgBdry = wBdry + cutoff;
 }
 
-int get_proc_index(particle_t &p) {
-    int i = p.y/pRowWidth;
-    int j = p.x/pColWidth;
-    return i*N+j;
-}
-
-void init_map_particles_to_procs(vector<vector<particle_t> > *dist, particle_t *particles, int n) {
- 
-    dist->resize(M*N);
+void map_particles_to_processors(int n_proc, int n, particle_t *in, int *sizes, int *offsets, vector<particle_t> &out) {
+    vector<vector<particle_t> > dist(n_proc);
+    int rInd, cInd;
     for (int i = 0; i < n; i++) {
-	int j = get_proc_index(particles[i]);
-	(*dist)[j].push_back(particles[i]);
+	cInd = in[i].x/pColWidth;
+	rInd = in[i].y/pRowWidth;
+	dist[rInd*N+cInd].push_back(in[i]);
+    }
+    offsets[0]=0;
+    for (int i = 0; i < n_proc; i++) {
+	vector<particle_t> curr = dist[i];
+	for (int j = 0; j < curr.size(); j++) {
+	    out.push_back(curr[j]);
+	}
+	if (i != n_proc-1)
+	    offsets[i+1] = offsets[i]+curr.size();
+	sizes[i] = curr.size();
     }
 }
 
-// debugging function
-void print_2DGrid(vector<vector<particle_t> > dist) {
+void compute_particle_distribution(vector<particle_t> &send, int *dist_sizes, int *dist_disp, vector<particle_t> local, int n_proc) {
 
-    int total = 0;
-    for (int i = 0; i < dist.size(); i++) {
-	printf("proc %d will have %d particles.\n",i,dist[i].size());
-        total += dist[i].size();
+    int rInd, cInd;
+    vector<vector<particle_t> > dist(n_proc);
+    vector<particle_t> currList;
+    send.clear();
+    for (int i = 0; i < local.size(); i++) {
+	cInd = local[i].x/pColWidth;
+	rInd = local[i].y/pRowWidth;
+	dist[rInd*N+cInd].push_back(local[i]);
     }
-    printf("total particles: %d\n",total);
-}
-
-void find_ghostzone(vector<vector<particle_t> > *ghostzone, vector<particle_t> *local, int n) {
-
-    int x,y;
-    for (int i = 0; i < (*local).size(); i++) {
-	x = (*local)[i].x;
-	y = (*local)[i].y;
-	if ((x < wGBdry) && (y < sGBdry))
-	    (*ghostzone)[0].push_back((*local)[i]);
-	if (y < sGBdry)
-	    (*ghostzone)[1].push_back((*local)[i]);
-	if ((x > eGBdry) && (y < sGBdry))
-	    (*ghostzone)[2].push_back((*local)[i]);
-	if (x < wGBdry)
-	    (*ghostzone)[3].push_back((*local)[i]);
-	if (x > eGBdry)
-	    (*ghostzone)[4].push_back((*local)[i]);
-	if ((x < wGBdry) && (y > nGBdry))
-	    (*ghostzone)[5].push_back((*local)[i]);
-	if (y > nGBdry)
-	    (*ghostzone)[6].push_back((*local)[i]);
-	if ((x > eGBdry) && (y > nGBdry))
-	    (*ghostzone)[7].push_back((*local)[i]);
+    dist_disp[0]=0;
+    for (int i = 0; i < n_proc; i++) {
+	currList = dist[i];
+	for (int j = 0; j < currList.size(); j++) {
+	    send.push_back(currList[j]);
+	}
+	dist_sizes[i] = currList.size();
+	if (i != n_proc-1)
+	    dist_disp[i+1] = dist_disp[i]+currList.size();
     }
-}
+} 
 
-int pick_ind(int r, int c, int i) {
-    if ((i==1) || (i==6)) {
-	return r;
-    } else {
-	return c;
-    }
-}
-
-// THIS FUNCTION IS NOT WORKING AND NEEDS TO BE DEBUGGED
-void send_and_recv_ghostzone(vector<vector<particle_t> > *out, vector<vector<particle_t> > *in, int* neighbors, int pRowInd, int pColInd,int n) {
+void compute_particle_gather(vector<particle_t> &recv, int *dist_sizes, int *dist_disp, int n_proc) {
     
-    int nSendSize;
-    int di;
-    int ind;
-    for (int i = 1; i < 2; i++) {
-    // even columns send particles, old columns receive particles
-    di = 7-i;
-    ind = pick_ind(pRowInd, pColInd,i);
-    if (((ind%2)==0) && (neighbors[i]!=-1)) {
-	printf("proc (%d,%d) sending to %d \n",pRowInd,pColInd,neighbors[i]);
-	nSendSize = (*out)[i].size();
-	MPI_Send(&nSendSize,1,MPI_UNSIGNED,neighbors[i],0,MPI_COMM_WORLD);
-	MPI_Send(&out[i].front(),nSendSize,PARTICLE,neighbors[i],0,MPI_COMM_WORLD);
+    dist_disp[0]=0;
+    for (int i = 1; i < n_proc; i++) {
+	dist_disp[i] = dist_disp[i-1]+dist_sizes[i-1];
     }
-    if (((ind%2)!=0) && (neighbors[di]!=-1)) {
-	printf("proc (%d,%d) receiving from %d\n",pRowInd,pColInd,neighbors[di]);
-	MPI_Recv(&nSendSize,1,MPI_UNSIGNED,neighbors[di],0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
-	(*in)[di].resize(nSendSize);
-	MPI_Recv(&in[di].front(),nSendSize,PARTICLE,neighbors[di],0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+    recv.clear();
+    recv.resize(dist_disp[n_proc-1]+dist_sizes[n_proc-1]);
+}
+
+void find_ghostzone(vector<vector<particle_t> > &ghostzone, vector<particle_t> local) {
+
+    for (int i = 0; i < 8; i++) {
+	ghostzone[i].clear();	
     }
-    // odd columns send particles, even columns receive particles
-/*
-    if (((pColInd%2)!=0) && (neighbors[i]!=-1)) {
-	nSendSize = (*out)[i].size();
-	MPI_Send(&nSendSize,1,MPI_UNSIGNED,neighbors[i],0,MPI_COMM_WORLD);
-	MPI_Send(&out[i],nSendSize,PARTICLE,neighbors[i],0,MPI_COMM_WORLD);
-    }
-    if (((pColInd%2)==0) && (neighbors[dual(i)]!=-1)) {
-	MPI_Recv(&nSendSize,1,MPI_UNSIGNED,neighbors[dual(i)],0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
-	(*in)[dual(i)].resize(nSendSize);
-	MPI_Recv(&in[dual(i)].front(),n,PARTICLE,neighbors[dual(i)],0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
-    } */
+    for (int i = 0; i < local.size(); i++) {
+	if (local[i].x > egBdry)
+	    ghostzone[4].push_back(local[i]);
+	if (local[i].x < wgBdry)
+	    ghostzone[3].push_back(local[i]);
+	if (local[i].y > ngBdry)
+	    ghostzone[6].push_back(local[i]);
+	if (local[i].y < sgBdry)
+	    ghostzone[1].push_back(local[i]);
+	if ((local[i].x < wgBdry) && (local[i].y < sgBdry))
+	    ghostzone[0].push_back(local[i]);
+	if ((local[i].x > egBdry) && (local[i].y < sgBdry))
+	    ghostzone[2].push_back(local[i]);
+	if ((local[i].x < wgBdry) && (local[i].y > ngBdry))
+	    ghostzone[5].push_back(local[i]);
+	if ((local[i].x > egBdry) && (local[i].y > ngBdry))
+	    ghostzone[7].push_back(local[i]);
     }
 }
 
@@ -191,124 +240,135 @@ int main( int argc, char **argv )
     //
     FILE *fsave = savename && rank == 0 ? fopen( savename, "w" ) : NULL;
     FILE *fsum = sumname && rank == 0 ? fopen ( sumname, "a" ) : NULL;
-     
+
+
+    particle_t *particles = (particle_t*) malloc( n * sizeof(particle_t) );
+    
+    MPI_Datatype PARTICLE;
     MPI_Type_contiguous( 6, MPI_DOUBLE, &PARTICLE );
     MPI_Type_commit( &PARTICLE );
+   
 
-    particle_t *particles;
-    vector<vector<particle_t> > particle_dist;
-    vector<particle_t> local;
-    vector<vector<particle_t> > ghostzone(8);
-    vector<vector<particle_t> > incoming_ghostzone(8);
-    
-    // 
-    // set up partitioning across processors based on grid size
+    //  
+    //  set up constants and rank dependent parameters
     //
-    int pRowInd, pColInd;
-    int pNeighbors[8];
     set_size(n);
-    setup_proc_grid(size, n_proc, rank, &pRowInd, &pColInd, pNeighbors);
-    
-    // debugging sanity check
-    //printf("Hi, I'm processor %d of %d. In the %d x %d processing grid, my coordinates are (%d,%d). The grid is %f x %f, and each proc is in charge of an area of %f x %f. My neighbors are: %d,%d,%d,%d,%d,%d,%d,%d.\n ",rank,n_proc,M,N,pRowInd,pColInd,size,size,pRowWidth,pColWidth,pNeighbors[0],pNeighbors[1],pNeighbors[2],pNeighbors[3],pNeighbors[4],pNeighbors[5],pNeighbors[6],pNeighbors[7]);
+    setup(n_proc, rank);
+    setup_local_grid();
+    compute_offset();
 
-    // initialize particles on proc 0 and send particles to each of the other procs
+    //
+    //  initialize variables 
+    //
+    int partition_offsets[n_proc];
+    int partition_sizes[n_proc];
+    vector<particle_t> particles_reordered; 
+    vector<particle_t> local;
+    vector<particle_t> dist_send;
+    vector<particle_t> dist_recv;
+    vector<particle_t> currNeighbor;
+    vector<vector<particle_t> > iGZ(8);
+    vector<vector<particle_t> > oGZ(8);
+    vector<vector<particle_t> > local_grid(gridm*gridn);
+    int dist_send_count[n_proc];
+    int dist_recv_count[n_proc];
+    int dist_send_disp[n_proc];
+    int dist_recv_disp[n_proc];
+    int nlocal;
+
+    //
+    //  distribute particles to each processor
+    //
     if (rank == 0) {
-	particles = (particle_t*) malloc( n * sizeof(particle_t) );
-        init_particles(n, particles);
-        init_map_particles_to_procs(&particle_dist, particles, n);
-	local = particle_dist[0];
-//	print_2DGrid(particle_dist);
-
-	for (int i = 1; i < n_proc; i++) {
-	    int nSendSize = particle_dist[i].size();
-	    MPI_Send(&nSendSize,1,MPI_UNSIGNED,i,0,MPI_COMM_WORLD); // send size
-	    MPI_Send(&particle_dist[i].front(),particle_dist[i].size(),PARTICLE,i,0,MPI_COMM_WORLD); // send particles
-	}
-    } else {
-	int nlocal;
-	MPI_Recv(&nlocal,1,MPI_UNSIGNED,0,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE); // receive size
-	local.resize(nlocal); // resize to right length
-	MPI_Recv(&local.front(),n,PARTICLE,0,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE); // receive particles
-    }    
-
-//    printf("Proc %d has %d particles.\n",rank,local.size());
-
-    //
-    //  set up the data partitioning across processors
-    //
-    /*
-    int particle_per_proc = (n + n_proc - 1) / n_proc;
-    int *partition_offsets = (int*) malloc( (n_proc+1) * sizeof(int) );
-    for( int i = 0; i < n_proc+1; i++ )
-        partition_offsets[i] = min( i * particle_per_proc, n );
-    
-    int *partition_sizes = (int*) malloc( n_proc * sizeof(int) );
-    for( int i = 0; i < n_proc; i++ )
-        partition_sizes[i] = partition_offsets[i+1] - partition_offsets[i];
-    */
-
-    //
-    //  allocate storage for local partition
-    //
-    /*
-    int nlocal = partition_sizes[rank];
-    particle_t *local = (particle_t*) malloc( nlocal * sizeof(particle_t) );
-    */
-
-    //
-    //  initialize and distribute the particles (that's fine to leave it unoptimized)
-    //
-    /*
-    set_size( n );
-    if( rank == 0 )
-        init_particles( n, particles );
-    MPI_Scatterv( particles, partition_sizes, partition_offsets, PARTICLE, local, nlocal, PARTICLE, 0, MPI_COMM_WORLD );
-    */
-
+	init_particles(n,particles);
+	map_particles_to_processors(n_proc,n,particles,partition_sizes,partition_offsets,particles_reordered);
+    }
+    MPI_Scatter(&partition_sizes[0],1,MPI_INT,&nlocal,1,MPI_INT,0,MPI_COMM_WORLD);
+    local.resize(nlocal);
+    MPI_Scatterv(&particles_reordered.front(), &partition_sizes[0], &partition_offsets[0], PARTICLE, &local.front(), nlocal, PARTICLE, 0, MPI_COMM_WORLD);
+  
     //
     //  simulate a number of time steps
     //
     double simulation_time = read_timer( );
-    for( int step = 0; step < 1; step++ )
+    for( int step = 0; step < NSTEPS; step++ )
     {
         navg = 0;
         dmin = 1.0;
         davg = 0.0;
-        // 
-        //  collect all global data locally (not good idea to do)
-        //
-        //MPI_Allgatherv( local, nlocal, PARTICLE, particles, partition_sizes, partition_offsets, PARTICLE, MPI_COMM_WORLD );
-        
+       
         //
         //  save current step if necessary (slightly different semantics than in other codes)
         //
-//        if( find_option( argc, argv, "-no" ) == -1 )
-//          if( fsave && (step%SAVEFREQ) == 0 )
-//            save( fsave, n, particles );
-
+        if( find_option( argc, argv, "-no" ) == -1 )
+          if( fsave && (step%SAVEFREQ) == 0 )
+            save( fsave, n, particles );
 
 	// 
-	//  find ghostzone particles and send to the right processors
+	//  calculate ghostzone for each processor and distribute
 	//
+	find_ghostzone(oGZ,local);
 
-	find_ghostzone(&ghostzone,&local,n);	
+	MPI_Request reqs[2*nn];
+	MPI_Status stats[2*nn];
+	int counter = 0;
+	for (int i = 0; i < 8; i++) {
+	    if (pNeighbors[i]!=-1) {
+		MPI_Isend(&oGZ[i].front(),oGZ[i].size(),PARTICLE,pNeighbors[i],0,MPI_COMM_WORLD,&reqs[counter]);
+		counter++;
+		iGZ[i].resize(n);
+		MPI_Irecv(&iGZ[i].front(),n,PARTICLE,pNeighbors[i],0,MPI_COMM_WORLD,&reqs[counter]);
+		counter++;
+	    }
+	}
+	MPI_Waitall(2*nn,reqs,stats);        
+	int np;
+	counter = 1;
+	for (int i = 0; i < 8; i++) {
+	    if (pNeighbors[i]!=-1) {
+		MPI_Get_count(&stats[counter],PARTICLE,&np);
+		iGZ[i].resize(np);
+		counter+=2;
+	    }
+	}	
 
-
-
-//	send_and_recv_ghostzone(&ghostzone,&incoming_ghostzone,pNeighbors,pRowInd,pColInd,n);
+        //
+        //  compute all forces using nlocal interactions
+        //
 	
-        
-        //
-        //  compute all forces
-        //
-//        for( int i = 0; i < nlocal; i++ )
-//        {
-//            local[i].ax = local[i].ay = 0;
-            for (int j = 0; j < n; j++ )
-//                apply_force( local[i], particles[j], &dmin, &davg, &navg );
-//        }
-     
+	int gInd;
+	distribute_particles_to_local_grid(local,iGZ,local_grid);
+	for (int i = 0; i < local.size(); i++) {
+	    local[i].ax = local[i].ay = 0;
+	    gInd = grid_index(local[i].x,local[i].y);
+	    local_apply_force(local[i],local_grid[gInd+offset[0]],&dmin,&davg,&navg);
+	    local_apply_force(local[i],local_grid[gInd+offset[1]],&dmin,&davg,&navg);
+	    local_apply_force(local[i],local_grid[gInd+offset[2]],&dmin,&davg,&navg);
+	    local_apply_force(local[i],local_grid[gInd+offset[3]],&dmin,&davg,&navg);
+	    local_apply_force(local[i],local_grid[gInd+offset[4]],&dmin,&davg,&navg);
+	    local_apply_force(local[i],local_grid[gInd+offset[5]],&dmin,&davg,&navg);
+	    local_apply_force(local[i],local_grid[gInd+offset[6]],&dmin,&davg,&navg);
+	    local_apply_force(local[i],local_grid[gInd+offset[7]],&dmin,&davg,&navg);
+	    local_apply_force(local[i],local_grid[gInd+offset[8]],&dmin,&davg,&navg);
+	}
+
+	//
+	//  compute all forces naively using nlocal^2 interactions
+	//
+/*	 
+        for( int i = 0; i < local.size(); i++ )
+        {
+            local[i].ax = local[i].ay = 0;
+            for (int j = 0; j < local.size(); j++ )
+                apply_force( local[i], local[j], &dmin, &davg, &navg );
+	    for (int k = 0; k < 8; k++) {
+		currNeighbor = iGZ[k];
+		for (int j = 0; j < currNeighbor.size(); j++) 
+		    apply_force(local[i],currNeighbor[j],&dmin,&davg,&navg);
+	    }
+        }
+	
+*/
         if( find_option( argc, argv, "-no" ) == -1 )
         {
           
@@ -332,8 +392,17 @@ int main( int argc, char **argv )
         //
         //  move particles
         //
-//        for( int i = 0; i < nlocal; i++ )
-//            move( local[i] );
+        for( int i = 0; i < local.size(); i++ )
+            move( local[i] );
+
+	//
+	//  send particles to the right processor after they move
+	//
+	compute_particle_distribution(dist_send,dist_send_count,dist_send_disp,local,n_proc);
+	MPI_Alltoall(&dist_send_count[0],1,MPI_INT,&dist_recv_count[0],1,MPI_INT,MPI_COMM_WORLD);
+	compute_particle_gather(dist_recv,dist_recv_count,dist_recv_disp,n_proc);
+	MPI_Alltoallv(&dist_send.front(),dist_send_count,dist_send_disp,PARTICLE,&dist_recv.front(),dist_recv_count,dist_recv_disp,PARTICLE,MPI_COMM_WORLD);
+	local = dist_recv;
     }
     simulation_time = read_timer( ) - simulation_time;
   
@@ -368,11 +437,7 @@ int main( int argc, char **argv )
     //
     if ( fsum )
         fclose( fsum );
-    //free( partition_offsets );
-    //free( partition_sizes );
-    //free( local );
-    if (rank == 0)
-	free( particles );
+    free( particles );
     if( fsave )
         fclose( fsave );
     
