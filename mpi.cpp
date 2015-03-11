@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <vector>
-#include "common.h"
+#include "common2.h"
 
 using std::vector;
 
@@ -199,6 +199,13 @@ void find_ghostzone(vector<vector<particle_t> > &ghostzone, vector<particle_t> l
     }
 }
 
+void generate_disp(int *count, int n, int *disp) {
+    disp[0] = 0;
+    for (int i = 1; i < n; i++) {
+	disp[i] = disp[i-1]+count[i-1];
+    }
+}
+
 //
 //  benchmarking program
 //
@@ -275,6 +282,9 @@ int main( int argc, char **argv )
     int dist_send_disp[n_proc];
     int dist_recv_disp[n_proc];
     int nlocal;
+    int save_count[n_proc];
+    int save_disp[n_proc];
+    int saveN;
 
     //
     //  distribute particles to each processor
@@ -300,9 +310,19 @@ int main( int argc, char **argv )
         //
         //  save current step if necessary (slightly different semantics than in other codes)
         //
-        if( find_option( argc, argv, "-no" ) == -1 )
-          if( fsave && (step%SAVEFREQ) == 0 )
-            save( fsave, n, particles );
+        if( find_option( argc, argv, "-no" ) == -1 ) {
+          if( savename && (step%SAVEFREQ) == 0 ) {
+	    saveN = local.size();
+	    MPI_Gather(&saveN,1,MPI_INT,&save_count[0],1,MPI_INT,0,MPI_COMM_WORLD);
+	    if (rank == 0) { 
+    	        generate_disp(save_count,n_proc,save_disp);
+	    }
+	    MPI_Gatherv(&local.front(),local.size(),PARTICLE,particles,save_count,save_disp,PARTICLE,0,MPI_COMM_WORLD);
+  	    if (rank == 0) {
+		save( fsave, n, particles );
+	    }
+	  }
+	}
 
 	// 
 	//  calculate ghostzone for each processor and distribute
